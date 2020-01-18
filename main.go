@@ -42,16 +42,19 @@ func main() {
 				delay := time.Duration(rand.Int63n(conf.Interval.Milliseconds())) * time.Millisecond
 				time.Sleep(delay)
 				log.Printf("Sending request %d\n", id)
-				c := &http.Client{}
+				c := &http.Client{Timeout: conf.Interval}
 				r, e := http.NewRequest("GET", conf.Target, nil)
 				if e != nil {
+					m.Process(&http.Response{Status: e.Error(), StatusCode: http.StatusServiceUnavailable})
 					log.Printf("Error creating http request: %s", e)
 					return
 				}
 				r.Header.Set("User-Agent", default_user_agent)
 				resp, e := c.Do(r)
 				if e != nil {
-					log.Printf("Error performing http request:%s", e)
+					m.Process(&http.Response{Status: e.Error(), StatusCode: http.StatusServiceUnavailable})
+					log.Printf("Error completing http request:%s", e)
+					fmt.Println(e)
 					return
 				}
 				m.Process(resp)
