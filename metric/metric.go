@@ -2,6 +2,7 @@ package metric
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"time"
@@ -9,7 +10,7 @@ import (
 
 //Metric contains the channel running to store the metrics for the load testing.
 type Metric struct {
-	op        chan (func(*metrics))
+	op              chan (func(*metrics))
 	report_interval time.Duration
 }
 
@@ -31,6 +32,17 @@ func New(report_interval time.Duration) (m Metric) {
 func (m *Metric) Process(r *http.Response) {
 	m.op <- func(curr *metrics) {
 		curr.stat_codes[r.StatusCode]++
+		curr.total_requests++
+		if r.Body != nil {
+			buf, e := ioutil.ReadAll(r.Body)
+			if e != nil {
+				log.Printf("Metric.Process got invalid / malformed body, skipping")
+				return
+			}
+			curr.bytes_processed += int64(len(buf))
+			r.Body.Close()
+		}
+		curr.bytes_per_request = curr.bytes_processed / curr.total_requests
 		return
 	}
 	return
@@ -40,11 +52,14 @@ func (m *Metric) Process(r *http.Response) {
 func (m Metric) String() (s string) {
 	sch := make(chan string)
 	m.op <- func(curr *metrics) {
-		tmp := fmt.Sprintf("--Request Status Summary--\n")
+		msg := fmt.Sprintf("--Request Status Summary--\n")
 		for code, count := range curr.stat_codes {
-			tmp += fmt.Sprintf("%d: %d\n", code, count)
+			msg += fmt.Sprintf("%d: %d\n", code, count)
 		}
-		sch <- tmp
+		msg += fmt.Sprintf("Total Requests: %d\n", curr.total_requests)
+		msg += fmt.Sprintf("Total Bytes Recieved: %d\n", curr.bytes_processed)
+		msg += fmt.Sprintf("Avg Bytes Per Request: %d\n", curr.bytes_per_request)
+		sch <- msg
 	}
 	s = <-sch
 	return
@@ -66,5 +81,8 @@ func (m *Metric) loop() {
 }
 
 type metrics struct {
-	stat_codes map[int]int64
+	stat_codes        map[int]int64
+	total_requests    int64
+	bytes_processed   int64
+	bytes_per_request int64
 }

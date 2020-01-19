@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log"
 	"math/rand"
@@ -14,7 +15,7 @@ import (
 	"github.com/koepkeca/tlt/metric"
 )
 
-const default_user_agent = "TLT - Trivial Load Tester github.com/koepkeca/tlt"
+const default_user_agent = "TLT - Trivial Load Tester"
 
 func main() {
 	conf := config.New()
@@ -42,7 +43,8 @@ func main() {
 				delay := time.Duration(rand.Int63n(conf.Interval.Milliseconds())) * time.Millisecond
 				time.Sleep(delay)
 				log.Printf("Sending request %d\n", id)
-				c := &http.Client{Timeout: conf.Interval}
+				tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+				c := &http.Client{Timeout: conf.Interval, Transport: tr}
 				r, e := http.NewRequest("GET", conf.Target, nil)
 				if e != nil {
 					m.Process(&http.Response{Status: e.Error(), StatusCode: http.StatusServiceUnavailable})
@@ -57,8 +59,9 @@ func main() {
 					fmt.Println(e)
 					return
 				}
+				//Because the process that manages the response can read it,
+				//m.Process is responsible for closing the request body.
 				m.Process(resp)
-				resp.Body.Close()
 			}(totalReq)
 			i++
 			totalReq++
