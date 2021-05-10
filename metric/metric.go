@@ -1,6 +1,7 @@
 package metric
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -29,20 +30,21 @@ func New(report_interval time.Duration) (m Metric) {
 }
 
 //Process adds a response to the response structure.
-func (m *Metric) Process(r *http.Response) {
+func (m *Metric) Process(r *http.Response, et time.Duration) {
 	m.op <- func(curr *metrics) {
-		curr.stat_codes[r.StatusCode]++
-		curr.total_requests++
+		curr.Stat_codes[r.StatusCode]++
+		curr.Total_requests++
+		curr.Timer_log = append(curr.Timer_log, et)
 		if r.Body != nil {
 			buf, e := ioutil.ReadAll(r.Body)
 			if e != nil {
 				log.Printf("Metric.Process got invalid / malformed body, skipping")
 				return
 			}
-			curr.bytes_processed += int64(len(buf))
+			curr.Bytes_processed += int64(len(buf))
 			r.Body.Close()
 		}
-		curr.bytes_per_request = curr.bytes_processed / curr.total_requests
+		curr.Bytes_per_request = curr.Bytes_processed / curr.Total_requests
 		return
 	}
 	return
@@ -53,22 +55,44 @@ func (m Metric) String() (s string) {
 	sch := make(chan string)
 	m.op <- func(curr *metrics) {
 		msg := fmt.Sprintf("--Request Status Summary--\n")
-		for code, count := range curr.stat_codes {
+		for code, count := range curr.Stat_codes {
 			msg += fmt.Sprintf("%d: %d\n", code, count)
 		}
-		msg += fmt.Sprintf("Total Requests: %d\n", curr.total_requests)
-		msg += fmt.Sprintf("Total Bytes Recieved: %d\n", curr.bytes_processed)
-		msg += fmt.Sprintf("Avg Bytes Per Request: %d\n", curr.bytes_per_request)
+		msg += fmt.Sprintf("Total Requests: %d\n", curr.Total_requests)
+		msg += fmt.Sprintf("Total Bytes Recieved: %d\n", curr.Bytes_processed)
+		msg += fmt.Sprintf("Avg Bytes Per Request: %d\n", curr.Bytes_per_request)
+		msg += fmt.Sprintf("--Current State--\n")
+		fmt.Println(curr)
+		state, e := json.MarshalIndent(*curr, "", "    ")
+		if e != nil {
+			log.Printf("Error unmarshaling data.")
+		}
+		msg += fmt.Sprintf("%s", state)
 		sch <- msg
 	}
 	s = <-sch
 	return
 }
 
+//Marshaler creates a current json-encoding of a Metric
+func (m Metric) MarshalJSON() (b []byte, e error) {
+	bch := make(chan []byte)
+	ech := make(chan error)
+	m.op <- func(curr *metrics) {
+		 tb , te := json.MarshalIndent(*curr, "", "    ")
+		bch <- tb
+		ech <- te
+	}
+	b = <- bch
+	e = <- ech
+	return
+}
+		
+
 //loop is the primary loop for the running metric.
 func (m *Metric) loop() {
 	sm := &metrics{}
-	sm.stat_codes = make(map[int]int64)
+	sm.Stat_codes = make(map[int]int64)
 	go func() {
 		c := time.Tick(m.report_interval)
 		for _ = range c {
@@ -81,8 +105,9 @@ func (m *Metric) loop() {
 }
 
 type metrics struct {
-	stat_codes        map[int]int64
-	total_requests    int64
-	bytes_processed   int64
-	bytes_per_request int64
+	Stat_codes        map[int]int64
+	Timer_log		  []time.Duration
+	Total_requests    int64
+	Bytes_processed   int64
+	Bytes_per_request int64
 }
