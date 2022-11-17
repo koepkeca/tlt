@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -69,10 +68,8 @@ func main() {
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token")
 		if r.Method == "OPTIONS" {
 			log.Println(r)
-			log.Printf("XXXXXXXXXXXXXXXXXXXXXXXX")
 			return
 		}
-
 		json_writer(w, m)
 	})
 	go func() {
@@ -89,33 +86,9 @@ func main() {
 	for _ = range tt {
 		i := int64(0)
 		for i < conf.Requests {
-			log.Printf("Spawning request %d\n", totalReq)
-			go func(id int64) {
-				delay := time.Duration(rand.Int63n(conf.Interval.Milliseconds())) * time.Millisecond
-				time.Sleep(delay)
-				req_st := time.Now()
-				log.Printf("Sending request %d\n", id)
-				tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-				c := &http.Client{Timeout: conf.Interval, Transport: tr}
-				r, e := http.NewRequest("GET", conf.Target, nil)
-				if e != nil {
-					m.Process(&http.Response{Status: e.Error(), StatusCode: http.StatusServiceUnavailable}, time.Since(req_st))
-					log.Printf("Error creating http request: %s", e)
-					return
-				}
-				r.Header.Set("User-Agent", default_user_agent)
-				resp, e := c.Do(r)
-				if e != nil {
-					m.Process(&http.Response{Status: e.Error(), StatusCode: http.StatusServiceUnavailable}, time.Since(req_st))
-					log.Printf("Error completing http request:%s", e)
-					fmt.Println(e)
-					return
-				}
-				//Because the process that manages the response can read it,
-				//m.Process is responsible for closing the request body.
-				m.Process(resp, time.Since(req_st))
-				c.CloseIdleConnections()
-			}(totalReq)
+			log.Printf("Spawning request id %d", totalReq)
+			req := &Request{Id: totalReq, Conf: conf, Metric: m}
+			go req.Exec()
 			i++
 			totalReq++
 		}
@@ -124,10 +97,20 @@ func main() {
 			break
 		}
 	}
-	log.Printf("Test concluded, terminating normally. Waiting for final requests to respond...")
+	log.Printf("Test concluded, terminating normally. Waiting for final requests to complete...")
 	time.Sleep(conf.Interval)
 	log.Printf("Done.\n")
 	log.Printf("%s", m)
+	ofp, e := os.Create(conf.Outfile)
+	if e != nil {
+		log.Printf("%s", e)
+		return
+	}
+	_, e = fmt.Fprintf(ofp, "%s", m)
+	if e != nil {
+
+		log.Printf("Unable to write session result: %s", e)
+	}
 	m.Close()
 	return
 }

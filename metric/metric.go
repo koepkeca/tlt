@@ -2,26 +2,29 @@ package metric
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"time"
 )
 
-//Metric contains the channel running to store the metrics for the load testing.
+var Err_Timeout = errors.New("context deadline exceeded (Client.Timeout or context cancellation while reading body)")
+
+// Metric contains the channel running to store the metrics for the load testing.
 type Metric struct {
 	op              chan (func(*metrics))
 	report_interval time.Duration
 }
 
-//Close will terminate the running metric listener.
+// Close will terminate the running metric listener.
 func (m *Metric) Close() {
 	close(m.op)
 	return
 }
 
-//New creates a new metric listener.
+// New creates a new metric listener.
 func New(report_interval time.Duration) (m Metric) {
 	m.op = make(chan func(*metrics))
 	m.report_interval = report_interval
@@ -29,70 +32,76 @@ func New(report_interval time.Duration) (m Metric) {
 	return
 }
 
-//Process adds a response to the response structure.
-func (m *Metric) Process(r *http.Response, et time.Duration) {
+// Process adds a response to the response structure.
+func (m *Metric) Process(id int64, target string, r *http.Response, st time.Time) {
 	m.op <- func(curr *metrics) {
-		curr.Stat_codes[r.StatusCode]++
-		curr.Total_requests++
-		curr.Timer_log = append(curr.Timer_log, et)
 		if r.Body != nil {
-			buf, e := ioutil.ReadAll(r.Body)
+			buf, e := io.ReadAll(r.Body)
 			if e != nil {
-				log.Printf("Metric.Process got invalid / malformed body, skipping")
-				return
+				if e.Error() == Err_Timeout.Error() {
+					r.StatusCode = http.StatusRequestTimeout
+					log.Printf("Metric.Process got timeout %s", time.Since(st))
+				} else {
+					log.Printf("Metric.Process got invalid / malformed body, skipping, [%s]", e)
+					log.Println("r.Body: ", r.Body)
+					r.StatusCode = http.StatusServiceUnavailable
+				}
 			}
+			stats := RespMeta{Duration: time.Since(st),
+				Url:             target,
+				Response:        r.StatusCode,
+				Bytes_processed: int64(len(buf)),
+			}
+			_, ok := curr.Report_log[target]
+			if !ok {
+				curr.Report_log[target] = make(map[int64]RespMeta)
+			}
+			curr.Report_log[target][id] = stats
 			curr.Bytes_processed += int64(len(buf))
 			r.Body.Close()
 		}
+		curr.Stat_codes[r.StatusCode]++
+		curr.Total_requests++
 		curr.Bytes_per_request = curr.Bytes_processed / curr.Total_requests
 		return
 	}
 	return
 }
 
-//String implements the fmt.Stringer interface for the Metric structure.
+// String implements the fmt.Stringer interface for the Metric structure.
 func (m Metric) String() (s string) {
 	sch := make(chan string)
 	m.op <- func(curr *metrics) {
-		msg := fmt.Sprintf("--Request Status Summary--\n")
-		for code, count := range curr.Stat_codes {
-			msg += fmt.Sprintf("%d: %d\n", code, count)
-		}
-		msg += fmt.Sprintf("Total Requests: %d\n", curr.Total_requests)
-		msg += fmt.Sprintf("Total Bytes Recieved: %d\n", curr.Bytes_processed)
-		msg += fmt.Sprintf("Avg Bytes Per Request: %d\n", curr.Bytes_per_request)
-		msg += fmt.Sprintf("--Current State--\n")
-		fmt.Println(curr)
 		state, e := json.MarshalIndent(*curr, "", "    ")
 		if e != nil {
 			log.Printf("Error unmarshaling data.")
 		}
-		msg += fmt.Sprintf("%s", state)
+		msg := fmt.Sprintf("%s", state)
 		sch <- msg
 	}
 	s = <-sch
 	return
 }
 
-//Marshaler creates a current json-encoding of a Metric
+// Marshaler creates a current json-encoding of a Metric
 func (m Metric) MarshalJSON() (b []byte, e error) {
 	bch := make(chan []byte)
 	ech := make(chan error)
 	m.op <- func(curr *metrics) {
-		 tb , te := json.MarshalIndent(*curr, "", "    ")
+		tb, te := json.MarshalIndent(*curr, "", "    ")
 		bch <- tb
 		ech <- te
 	}
-	b = <- bch
-	e = <- ech
+	b = <-bch
+	e = <-ech
 	return
 }
-		
 
-//loop is the primary loop for the running metric.
+// loop is the primary loop for the running metric.
 func (m *Metric) loop() {
 	sm := &metrics{}
 	sm.Stat_codes = make(map[int]int64)
+	sm.Report_log = make(map[string]map[int64]RespMeta)
 	go func() {
 		c := time.Tick(m.report_interval)
 		for _ = range c {
@@ -106,8 +115,15 @@ func (m *Metric) loop() {
 
 type metrics struct {
 	Stat_codes        map[int]int64
-	Timer_log		  []time.Duration
+	Report_log        map[string]map[int64]RespMeta
 	Total_requests    int64
 	Bytes_processed   int64
 	Bytes_per_request int64
+}
+
+type RespMeta struct {
+	Duration        time.Duration
+	Url             string
+	Response        int
+	Bytes_processed int64
 }
