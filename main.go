@@ -73,7 +73,7 @@ func main() {
 		json_writer(w, m)
 	})
 	go func() {
-		err := http.ListenAndServe(":8192", context.ClearHandler(http.DefaultServeMux))
+		err := http.ListenAndServe(":"+conf.ListenPort, context.ClearHandler(http.DefaultServeMux))
 		if err != nil {
 			log.Printf("Http service disabled: %s", err)
 		}

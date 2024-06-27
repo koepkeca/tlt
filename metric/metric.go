@@ -35,6 +35,7 @@ func New(report_interval time.Duration) (m Metric) {
 // Process adds a response to the response structure.
 func (m *Metric) Process(id int64, target string, r *http.Response, st time.Time) {
 	m.op <- func(curr *metrics) {
+		ttfb := time.Since(st)
 		if r.Body != nil {
 			buf, e := io.ReadAll(r.Body)
 			if e != nil {
@@ -47,16 +48,14 @@ func (m *Metric) Process(id int64, target string, r *http.Response, st time.Time
 					r.StatusCode = http.StatusServiceUnavailable
 				}
 			}
-			stats := RespMeta{Duration: time.Since(st),
+			stats := RespMeta{Id: id,
+				Ttfb:            ttfb,
+				Total:           time.Since(st),
 				Url:             target,
 				Response:        r.StatusCode,
 				Bytes_processed: int64(len(buf)),
 			}
-			_, ok := curr.Report_log[target]
-			if !ok {
-				curr.Report_log[target] = make(map[int64]RespMeta)
-			}
-			curr.Report_log[target][id] = stats
+			curr.Report_log[target] = append(curr.Report_log[target], stats)
 			curr.Bytes_processed += int64(len(buf))
 			r.Body.Close()
 		}
@@ -101,7 +100,7 @@ func (m Metric) MarshalJSON() (b []byte, e error) {
 func (m *Metric) loop() {
 	sm := &metrics{}
 	sm.Stat_codes = make(map[int]int64)
-	sm.Report_log = make(map[string]map[int64]RespMeta)
+	sm.Report_log = make(map[string][]RespMeta)
 	go func() {
 		c := time.Tick(m.report_interval)
 		for _ = range c {
@@ -115,14 +114,16 @@ func (m *Metric) loop() {
 
 type metrics struct {
 	Stat_codes        map[int]int64
-	Report_log        map[string]map[int64]RespMeta
+	Report_log        map[string][]RespMeta
 	Total_requests    int64
 	Bytes_processed   int64
 	Bytes_per_request int64
 }
 
 type RespMeta struct {
-	Duration        time.Duration
+	Id              int64
+	Ttfb            time.Duration
+	Total           time.Duration
 	Url             string
 	Response        int
 	Bytes_processed int64

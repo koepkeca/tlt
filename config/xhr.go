@@ -23,8 +23,8 @@ type XhrFile struct {
 			ID              string `json:"id"`
 			Title           string `json:"title"`
 			PageTimings     struct {
-				OnContentLoad int `json:"onContentLoad"`
-				OnLoad        int `json:"onLoad"`
+				OnContentLoad float64 `json:"onContentLoad"`
+				OnLoad        float64 `json:"onLoad"`
 			} `json:"pageTimings"`
 		} `json:"pages"`
 		Entries []struct {
@@ -67,18 +67,18 @@ type XhrFile struct {
 			Cache struct {
 			} `json:"cache"`
 			Timings struct {
-				Blocked int `json:"blocked"`
-				DNS     int `json:"dns"`
-				Connect int `json:"connect"`
-				Ssl     int `json:"ssl"`
-				Send    int `json:"send"`
-				Wait    int `json:"wait"`
-				Receive int `json:"receive"`
+				Blocked float64 `json:"blocked"`
+				DNS     float64 `json:"dns"`
+				Connect float64 `json:"connect"`
+				Ssl     float64 `json:"ssl"`
+				Send    float64 `json:"send"`
+				Wait    float64 `json:"wait"`
+				Receive float64 `json:"receive"`
 			} `json:"timings"`
-			Time            int    `json:"time"`
-			SecurityState   string `json:"_securityState"`
-			ServerIPAddress string `json:"serverIPAddress"`
-			Connection      string `json:"connection"`
+			Time            float64 `json:"time"`
+			SecurityState   string  `json:"_securityState"`
+			ServerIPAddress string  `json:"serverIPAddress"`
+			Connection      string  `json:"connection"`
 		} `json:"entries"`
 	} `json:"log"`
 }

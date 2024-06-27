@@ -15,11 +15,12 @@ const default_runtime = 60 * time.Second
 
 type C struct {
 	Interval        time.Duration
+	ListenPort      string
+	Outfile         string
 	Report_interval time.Duration
 	Requests        int64
-	Target          []string
 	Runtime         time.Duration
-	Outfile         string
+	Target          []string
 }
 
 // New creates a new Config from command line arguments.
@@ -31,6 +32,7 @@ func New() (c C) {
 	cli_runtime := flag.Duration("runtime", default_runtime, " Sets the amount of time to run the load test for.")
 	cli_xhrfile := flag.String("xhr", "", "Sets the source xhr file and activates XHR Replay mode. [Cannot be used with url.]")
 	cli_outfile := flag.String("outfile", "session.json", "Sets the output file")
+	cli_listenport := flag.String("port", "8192", "Sets the port to listen on for the metrics.")
 	flag.Parse()
 	if *cli_target != "" && *cli_xhrfile != "" {
 		log.Printf("The url and xhr paramaters may not be used together. Please pick one mode and try again.")
@@ -69,5 +71,6 @@ func New() (c C) {
 	c.Report_interval = *cli_report_interval
 	c.Runtime = *cli_runtime
 	c.Outfile = *cli_outfile
+	c.ListenPort = *cli_listenport
 	return
 }
